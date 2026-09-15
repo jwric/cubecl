@@ -1,13 +1,13 @@
 //! Writing the flat bundle format.
 //!
-//! The reader lives in [`super::embedded`] and documents the layout. Writing
-//! is native-only on purpose: a bundle for any target is produced on a
-//! development machine, and only consumed elsewhere.
+//! The reader lives in [`super::embedded`] and documents the layout. The
+//! bytes are assembled wherever there is a storage to read — the browser
+//! [`capture`](super::capture)s what it tuned this way — and only written to
+//! a file where there is a file system.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
-use std::string::{String, ToString};
-use std::vec::Vec;
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
 use super::embedded::{ENTRY_SIZE, FORMAT_VERSION, MAGIC};
 use super::{BundleError, BundleManifest};
@@ -20,12 +20,20 @@ use crate::bytes::Bytes;
 /// order, so ordering by namespace string is the same as ordering by id.
 pub(crate) type Entries = BTreeMap<(String, Vec<u8>), Bytes>;
 
-/// Serializes `entries` and `manifest` into the flat format.
+/// Serializes `entries` and `manifest` into the flat format at `out`.
+#[cfg(native_cache)]
 pub(crate) fn write(
-    out: &Path,
+    out: &std::path::Path,
     entries: &Entries,
     manifest: &BundleManifest,
 ) -> Result<(), BundleError> {
+    std::fs::write(out, &*encode(entries, manifest)?)?;
+
+    Ok(())
+}
+
+/// Serializes `entries` and `manifest` into the flat format.
+pub(crate) fn encode(entries: &Entries, manifest: &BundleManifest) -> Result<Bytes, BundleError> {
     let metadata = serde_json::to_vec(manifest)
         .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
 
@@ -76,9 +84,7 @@ pub(crate) fn write(
     bytes.extend_from_byte_slice(&index);
     bytes.extend_from_byte_slice(&data);
 
-    std::fs::write(out, &*bytes)?;
-
-    Ok(())
+    Ok(bytes)
 }
 
 /// Appends `value` as the little-endian `u32` the format is written in.

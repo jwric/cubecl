@@ -121,6 +121,36 @@ pub struct EnvironmentInfo {
 }
 
 impl BundleManifest {
+    /// The manifest of a bundle written now, by this build, describing
+    /// `environments` — `os` and `arch` filled from the build target where
+    /// left empty — under `name`.
+    #[cfg(any(native_cache, browser_cache))]
+    pub(super) fn stamped(name: &str, environments: &[EnvironmentInfo]) -> Self {
+        let mut environments = environments.to_vec();
+        if environments.is_empty() {
+            environments.push(EnvironmentInfo::default());
+        }
+        for environment in &mut environments {
+            if environment.os.is_empty() {
+                environment.os = std::env::consts::OS.to_string();
+            }
+            if environment.arch.is_empty() {
+                environment.arch = std::env::consts::ARCH.to_string();
+            }
+        }
+
+        Self {
+            schema: MANIFEST_SCHEMA,
+            name: name.to_string(),
+            cubecl_version: env!("CARGO_PKG_VERSION").to_string(),
+            created_unix_secs: crate::time::SystemTime::now()
+                .duration_since(crate::time::UNIX_EPOCH)
+                .ok()
+                .map(|elapsed| elapsed.as_secs()),
+            environments,
+        }
+    }
+
     /// Parses and validates a serialized manifest, the JSON both formats
     /// store.
     ///

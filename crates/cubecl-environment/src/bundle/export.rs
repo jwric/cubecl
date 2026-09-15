@@ -7,10 +7,7 @@ use crate::bytes::Bytes;
 use crate::persistence::turso::{self as database, connect};
 
 use super::flat;
-use super::{
-    BundleError, BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA, SqliteBundle,
-    flat_bundle_version,
-};
+use super::{BundleError, BundleManifest, EnvironmentInfo, SqliteBundle, flat_bundle_version};
 
 const SELECT: &str = "SELECT namespace, key, value FROM cache_entries";
 /// A plain prefix match on whole segments, avoiding LIKE's wildcards.
@@ -83,16 +80,7 @@ pub async fn export<R: AsRef<Path>, O: AsRef<Path>>(
     let out = out.as_ref();
     prepare_output(out, options.format)?;
 
-    let manifest = BundleManifest {
-        schema: MANIFEST_SCHEMA,
-        name: options.name.clone(),
-        cubecl_version: env!("CARGO_PKG_VERSION").to_string(),
-        created_unix_secs: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()
-            .map(|elapsed| elapsed.as_secs()),
-        environments: resolve_environments(&options.environments),
-    };
+    let manifest = BundleManifest::stamped(&options.name, &options.environments);
 
     let sources: Vec<PathBuf> = cache_roots
         .iter()
@@ -411,24 +399,6 @@ fn publish(staged: &Path, out: &Path) -> Result<(), BundleError> {
     std::fs::rename(staged, out)?;
 
     Ok(())
-}
-
-fn resolve_environments(configured: &[EnvironmentInfo]) -> Vec<EnvironmentInfo> {
-    let mut environments = configured.to_vec();
-    if environments.is_empty() {
-        environments.push(EnvironmentInfo::default());
-    }
-
-    for environment in &mut environments {
-        if environment.os.is_empty() {
-            environment.os = std::env::consts::OS.to_string();
-        }
-        if environment.arch.is_empty() {
-            environment.arch = std::env::consts::ARCH.to_string();
-        }
-    }
-
-    environments
 }
 
 pub(super) fn storage_error(error: turso::Error) -> BundleError {
