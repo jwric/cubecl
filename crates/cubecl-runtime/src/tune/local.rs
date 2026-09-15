@@ -270,7 +270,7 @@ where
         if Arc::ptr_eq(&slot, &fresh) {
             let name = self.name.replace("::", "-");
             let device_id = id.to_string();
-            cubecl_environment::future::spawn_detached(async move {
+            super::tuner::detached(async move {
                 *slot.lock() = Some(Arc::new(Tuner::new(&name, &device_id).await));
             });
             return None;
