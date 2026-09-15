@@ -24,8 +24,10 @@
 //! `SQLite` file. [`EmbeddedBundle`] is one flat blob for wasm and no-std
 //! targets, which have no file system to open.
 //!
-//! Writing is native-only on purpose. A bundle for any target is produced on a
-//! development machine by [`export`], and only consumed elsewhere.
+//! Writing to a file is native-only: a bundle for any target is produced on a
+//! development machine by [`export`]. What a browser can do is [`capture`]
+//! the environment it tuned as the flat format's bytes, for a development
+//! machine to publish.
 //!
 //! # Correctness
 //!
@@ -48,15 +50,19 @@ pub use embedded::*;
 pub use import::*;
 pub use manifest::*;
 
+#[cfg(any(native_cache, browser_cache))]
+mod capture;
 #[cfg(native_cache)]
 mod export;
-#[cfg(native_cache)]
+#[cfg(any(native_cache, browser_cache))]
 mod flat;
 #[cfg(native_cache)]
 mod open;
 #[cfg(native_cache)]
 mod sqlite;
 
+#[cfg(any(native_cache, browser_cache))]
+pub use capture::*;
 #[cfg(native_cache)]
 pub use export::*;
 #[cfg(native_cache)]

@@ -1,8 +1,8 @@
 #![cfg(feature = "persistence")]
 
 use cubecl_environment::bundle::{
-    Bundle, BundleError, BundleFormat, BundleManifest, EmbeddedBundle, ExportOptions, SqliteBundle,
-    export, import,
+    Bundle, BundleError, BundleFormat, BundleManifest, CaptureOptions, EmbeddedBundle,
+    ExportOptions, SqliteBundle, capture, export, import,
 };
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
@@ -295,6 +295,47 @@ async fn a_bundle_file_summarizes_its_namespaces() {
     let expected = cubecl_environment::environment::namespaces().await;
     let bundle = SqliteBundle::open(&bundle_path).unwrap();
     assert_eq!(bundle.summary(), expected);
+}
+
+/// A capture is the export a target with no file system can take: the same
+/// entries `export` would write, as the flat format's bytes, straight from
+/// the storage — and restricted the same way, on whole namespace segments.
+#[tokio::test]
+#[serial_test::serial]
+async fn a_capture_is_the_flat_export_of_the_active_environment() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let cold_root = tempfile::tempdir().unwrap();
+
+    warm(
+        warm_root.path(),
+        "autotune",
+        "device0/matmul",
+        &[("shape=2x2", 3), ("shape=4x4", 7)],
+    )
+    .await;
+    warm(warm_root.path(), "cuda", "device0/ptx", &[("kernel", 9)]).await;
+
+    let bytes = capture(&CaptureOptions {
+        name: "Test GPU Browser".to_string(),
+        namespaces: vec!["autotune".to_string()],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let bundle = EmbeddedBundle::open(bytes).unwrap();
+    assert_eq!(bundle.manifest().unwrap().name, "Test GPU Browser");
+    assert_eq!(
+        bundle.namespaces().len(),
+        1,
+        "the compiled kernels stay home"
+    );
+
+    let report = import_into(cold_root.path(), &bundle).await;
+    assert_eq!(report.imported, 2);
+    let store = open(cold_root.path(), "autotune", "device0/matmul").await;
+    assert_eq!(store.get(&"shape=2x2".to_string()), Some(&3));
+    assert_eq!(store.get(&"shape=4x4".to_string()), Some(&7));
 }
 
 /// Merging cache roots dedupes on the primary key. The original file-copy
