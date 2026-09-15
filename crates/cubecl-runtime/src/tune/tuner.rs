@@ -26,6 +26,41 @@ use super::{
     AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TuneInputs, TunePlan,
 };
 
+/// How many tunes the browser has handed to the event loop so far, across
+/// every tuner — a tuner opening, a cache hydrating and a key's candidates
+/// resolving alike. What a warm-up loops on: a reply that handed it nothing
+/// has nothing left to start.
+#[cfg(target_family = "wasm")]
+pub fn tunes_launched() -> usize {
+    TUNES_LAUNCHED.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+/// How many of those have not landed yet. What a warm-up waits out: a call
+/// made while one is in flight runs the fallback where the pick will be.
+#[cfg(target_family = "wasm")]
+pub fn tunes_in_flight() -> usize {
+    TUNES_IN_FLIGHT.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(target_family = "wasm")]
+static TUNES_LAUNCHED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+#[cfg(target_family = "wasm")]
+static TUNES_IN_FLIGHT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Hands `work` to the event loop, counted: launched once, in flight until
+/// it lands.
+#[cfg(target_family = "wasm")]
+pub(crate) fn detached(work: impl core::future::Future<Output = ()> + 'static) {
+    use core::sync::atomic::Ordering::Relaxed;
+
+    TUNES_LAUNCHED.fetch_add(1, Relaxed);
+    TUNES_IN_FLIGHT.fetch_add(1, Relaxed);
+    cubecl_environment::future::spawn_detached(async move {
+        work.await;
+        TUNES_IN_FLIGHT.fetch_sub(1, Relaxed);
+    });
+}
+
 #[derive(Debug)]
 /// Runs autotune benchmarks for a single device and caches the results.
 ///
@@ -314,7 +349,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 if !hydrated {
                     drop(cache);
                     let cache = self.cache.clone();
-                    cubecl_environment::future::spawn_detached(async move {
+                    detached(async move {
                         cache.lock().await.sync_persistent().await;
                     });
                     return TuneCacheResult::Pending;
@@ -331,7 +366,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let request = self.launch_fixed_samples(job, client);
 
         let (cache, logger) = (self.cache.clone(), self.logger.clone());
-        cubecl_environment::future::spawn_detached(async move {
+        detached(async move {
             process_request(request, cache, logger).await;
         });
 
